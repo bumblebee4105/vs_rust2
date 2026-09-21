@@ -1,0 +1,9 @@
+# Packages installed into every student's environment during setup.
+# torch/torchvision/torchaudio are special-cased: the app picks CUDA 12.6
+# wheels when an NVIDIA GPU is present, CPU wheels otherwise, and the
+# standard (MPS-enabled) wheel on Apple Silicon.
+numpy
+pandas
+matplotlib
+scikit-learn
+torch

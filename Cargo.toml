@@ -1,0 +1,22 @@
+[package]
+name = "vs_rust"
+version = "0.2.0"
+edition = "2021"
+description = "One-click Python + PyTorch environment installer and code runner for classroom use"
+
+# Smaller, faster release binary
+[profile.release]
+opt-level = 2
+lto = true
+codegen-units = 1
+
+[dependencies]
+# GUI (glow backend only -> much faster builds than the default wgpu backend)
+eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+egui_extras = { version = "0.31", features = ["syntect"] } # Python syntax highlighting
+
+# HTTP downloads (rustls -> no system OpenSSL needed, works the same everywhere)
+ureq = { version = "2", default-features = false, features = ["tls"] }
+
+# Platform-correct per-user data directories
+dirs = "6"
