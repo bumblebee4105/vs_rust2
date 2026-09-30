@@ -1,3 +1,72 @@
+# # name: Build
+
+# # on:
+# #   push:
+# #     tags: ["v*"]
+
+# # env:
+# #   CARGO_TERM_COLOR: always
+
+# # jobs:
+# #   build:
+# #     strategy:
+# #       fail-fast: false
+# #       matrix:
+# #         include:
+# #           - os: ubuntu-latest
+# #             target: x86_64-unknown-linux-gnu
+# #           - os: ubuntu-latest
+# #             target: aarch64-unknown-linux-gnu
+# #           - os: macos-latest          # Apple Silicon runner
+# #             target: aarch64-apple-darwin
+# #           - os: macos-latest
+# #             target: x86_64-apple-darwin
+# #           - os: windows-latest
+# #             target: x86_64-pc-windows-msvc
+# #           - os: windows-11-arm        # native ARM64 Windows runner
+# #             target: aarch64-pc-windows-msvc
+
+# #     runs-on: ${{ matrix.os }}
+
+# #     steps:
+# #       - uses: actions/checkout@v4
+
+# #       - name: Install Rust
+# #         run: |
+# #           rustup default stable
+# #           rustup target add ${{ matrix.target }}
+
+# #       # Linux ARM cross-compile via cross (uses QEMU/Docker transparently)
+# #       - name: Install cross (Linux ARM)
+# #         if: matrix.target == 'aarch64-unknown-linux-gnu'
+# #         run: cargo install cross --git https://github.com/cross-rs/cross
+
+# #       - name: Build (native)
+# #         if: matrix.target != 'aarch64-unknown-linux-gnu'
+# #         run: cargo build --release --target ${{ matrix.target }}
+
+# #       - name: Build (cross)
+# #         if: matrix.target == 'aarch64-unknown-linux-gnu'
+# #         run: cross build --release --target ${{ matrix.target }}
+
+# #       - name: Package
+# #         shell: bash
+# #         run: |
+# #           name=myapp-${{ matrix.target }}
+# #           mkdir dist
+# #           if [[ "${{ matrix.os }}" == windows* ]]; then
+# #             cp target/${{ matrix.target }}/release/myapp.exe dist/
+# #             cd dist && 7z a "../$name.zip" . && cd ..
+# #           else
+# #             cp target/${{ matrix.target }}/release/myapp dist/
+# #             tar -czf "$name.tar.gz" -C dist .
+# #           fi
+
+# #       - uses: actions/upload-artifact@v4
+# #         with:
+# #           name: myapp-${{ matrix.target }}
+# #           path: dist/
+
 # name: Build
 
 # on:
@@ -17,13 +86,13 @@
 #             target: x86_64-unknown-linux-gnu
 #           - os: ubuntu-latest
 #             target: aarch64-unknown-linux-gnu
-#           - os: macos-latest          # Apple Silicon runner
+#           - os: macos-latest
 #             target: aarch64-apple-darwin
 #           - os: macos-latest
 #             target: x86_64-apple-darwin
 #           - os: windows-latest
 #             target: x86_64-pc-windows-msvc
-#           - os: windows-11-arm        # native ARM64 Windows runner
+#           - os: windows-11-arm
 #             target: aarch64-pc-windows-msvc
 
 #     runs-on: ${{ matrix.os }}
@@ -36,7 +105,6 @@
 #           rustup default stable
 #           rustup target add ${{ matrix.target }}
 
-#       # Linux ARM cross-compile via cross (uses QEMU/Docker transparently)
 #       - name: Install cross (Linux ARM)
 #         if: matrix.target == 'aarch64-unknown-linux-gnu'
 #         run: cargo install cross --git https://github.com/cross-rs/cross
@@ -52,26 +120,32 @@
 #       - name: Package
 #         shell: bash
 #         run: |
-#           name=myapp-${{ matrix.target }}
+#           name=app-${{ matrix.target }}
 #           mkdir dist
-#           if [[ "${{ matrix.os }}" == windows* ]]; then
-#             cp target/${{ matrix.target }}/release/myapp.exe dist/
+#           if [[ "${{ runner.os }}" == "Windows" ]]; then
+#             # on Windows the binary is the only .exe cargo produces here
+#             cp target/${{ matrix.target }}/release/*.exe dist/
 #             cd dist && 7z a "../$name.zip" . && cd ..
 #           else
-#             cp target/${{ matrix.target }}/release/myapp dist/
+#             # on Linux/macOS: the binary is the only executable file (skip .d dep files)
+#             bin=$(find target/${{ matrix.target }}/release -maxdepth 1 -type f -perm -111 ! -name '*.d' | head -1)
+#             cp "$bin" dist/
 #             tar -czf "$name.tar.gz" -C dist .
 #           fi
 
 #       - uses: actions/upload-artifact@v4
 #         with:
-#           name: myapp-${{ matrix.target }}
-#           path: dist/
+#           name: app-${{ matrix.target }}
+#           path: |
+#             dist/*.zip
+#             dist/*.tar.gz
 
-name: Build
+name: Build, Test, Release
 
 on:
   push:
     tags: ["v*"]
+    branches: ["**"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -83,14 +157,85 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
           - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-          - os: macos-latest
+            target: aarch64-unknown-linux-musl
+          - os: macos-15
             target: aarch64-apple-darwin
-          - os: macos-latest
+          - os: macos-15-intel
             target: x86_64-apple-darwin
-          - os: windows-latest
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            rustflags: -C target-feature=+crt-static
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            rustflags: -C target-feature=+crt-static
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Rust
+        run: |
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+
+      - name: Install cross (Linux)
+        if: runner.os == 'Linux'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Locate binary
+        id: bin
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            f=$(ls target/${{ matrix.target }}/release/*.exe | head -1)
+          else
+            f=$(find target/${{ matrix.target }}/release -maxdepth 1 -type f -perm -111 ! -name '*.d' | head -1)
+          fi
+          echo "path=$f" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: ${{ steps.bin.outputs.path }}
+
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86: newest + previous LTS
+          - os: ubuntu-26.04
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          # Linux ARM: same, run through QEMU user-mode emulation
+          - os: ubuntu-26.04
+            target: aarch64-unknown-linux-musl
+            qemu: qemu-aarch64-static
+          - os: ubuntu-24.04
+            target: aarch64-unknown-linux-musl
+            qemu: qemu-aarch64-static
+          # macOS ARM on two OS versions, Intel on the last Intel runner
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-latest      # macOS 26
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          # Windows x86 on both server versions, ARM on the ARM runner
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+          - os: windows-2025
             target: x86_64-pc-windows-msvc
           - os: windows-11-arm
             target: aarch64-pc-windows-msvc
@@ -98,44 +243,64 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: bin
 
-      - name: Install Rust
-        run: |
-          rustup default stable
-          rustup target add ${{ matrix.target }}
-
-      - name: Install cross (Linux ARM)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Build (native)
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Build (cross)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: cross build --release --target ${{ matrix.target }}
-
-      - name: Package
+      - name: Smoke test
         shell: bash
         run: |
-          name=app-${{ matrix.target }}
-          mkdir dist
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            # on Windows the binary is the only .exe cargo produces here
-            cp target/${{ matrix.target }}/release/*.exe dist/
-            cd dist && 7z a "../$name.zip" . && cd ..
+            f=$(ls bin/*.exe | head -1)
           else
-            # on Linux/macOS: the binary is the only executable file (skip .d dep files)
-            bin=$(find target/${{ matrix.target }}/release -maxdepth 1 -type f -perm -111 ! -name '*.d' | head -1)
-            cp "$bin" dist/
-            tar -czf "$name.tar.gz" -C dist .
+            f=$(find bin -type f | head -1)
+            chmod +x "$f"
           fi
+          runner=""
+          if [[ -n "${{ matrix.qemu }}" ]]; then
+            sudo apt-get update && sudo apt-get install -y qemu-user-static
+            runner="${{ matrix.qemu }}"
+          fi
+          # If your app has no --version/--help, replace this line with
+          # any invocation that starts, does something, and exits.
+          $runner "$f" --version || $runner "$f" --help
 
-      - uses: actions/upload-artifact@v4
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          name: app-${{ matrix.target }}
-          path: |
-            dist/*.zip
-            dist/*.tar.gz
+          path: bins
+
+      - name: Package
+        run: |
+          mkdir dist
+          for d in bins/bin-*; do
+            target=${d#bins/bin-}
+            f=$(find "$d" -type f | head -1)
+            name=app-$target
+            if [[ "$f" == *.exe ]]; then
+              cp "$f" "dist/$name.exe"
+              (cd dist && 7z a "$name.zip" "$name.exe" && rm "$name.exe")
+            else
+              cp "$f" "dist/$name"
+              chmod +x "dist/$name"          # artifacts can drop the +x bit
+              tar -czf "dist/$name.tar.gz" -C dist "$name"
+              rm "dist/$name"
+            fi
+          done
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            dist/*
