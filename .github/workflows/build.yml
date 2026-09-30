@@ -72,41 +72,45 @@ jobs:
           name: bin-${{ matrix.target }}
           path: ${{ steps.bin.outputs.path }}
 
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: bins
-
-      - name: Package
-        run: |
-          mkdir dist
-          for d in bins/bin-*; do
-            target=${d#bins/bin-}
-            f=$(find "$d" -type f | head -1)
-            name=app-$target
-            if [[ "$f" == *.exe ]]; then
-              cp "$f" "dist/$name.exe"
-              (cd dist && 7z a "$name.zip" "$name.exe" && rm "$name.exe")
-            else
-              cp "$f" "dist/$name"
-              chmod +x "dist/$name"
-              tar -czf "dist/$name.tar.gz" -C dist "$name"
-              rm "dist/$name"
-            fi
-          done
-
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create ${{ github.ref_name }} \
-            --title "${{ github.ref_name }}" \
-            --generate-notes \
-            dist/*
+    release:
+      needs: build
+      if: startsWith(github.ref, 'refs/tags/')
+      runs-on: ubuntu-latest
+      permissions:
+        contents: write
+  
+      steps:
+        - uses: actions/checkout@v4        # ← this was missing; gh needs the git history
+          with:
+            fetch-depth: 0                # full history, so --generate-notes sees previous tags
+  
+        - uses: actions/download-artifact@v4
+          with:
+            path: bins
+  
+        - name: Package
+          run: |
+            mkdir dist
+            for d in bins/bin-*; do
+              target=${d#bins/bin-}
+              f=$(find "$d" -type f | head -1)
+              name=app-$target
+              if [[ "$f" == *.exe ]]; then
+                cp "$f" "dist/$name.exe"
+                (cd dist && 7z a "$name.zip" "$name.exe" && rm "$name.exe")
+              else
+                cp "$f" "dist/$name"
+                chmod +x "dist/$name"
+                tar -czf "dist/$name.tar.gz" -C dist "$name"
+                rm "dist/$name"
+              fi
+            done
+  
+        - name: Create release
+          env:
+            GH_TOKEN: ${{ github.token }}
+          run: |
+            gh release create ${{ github.ref_name }} \
+              --title "${{ github.ref_name }}" \
+              --generate-notes \
+              dist/*
