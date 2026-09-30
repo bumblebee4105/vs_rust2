@@ -1,6 +1,6 @@
 [package]
-name = "vs_rust"
-version = "0.2.0"
+name = "ml-class-launcher"
+version = "0.3.0"
 edition = "2021"
 description = "One-click Python + PyTorch environment installer and code runner for classroom use"
 
@@ -17,6 +17,13 @@ egui_extras = { version = "0.31", features = ["syntect"] } # Python syntax highl
 
 # HTTP downloads (rustls -> no system OpenSSL needed, works the same everywhere)
 ureq = { version = "2", default-features = false, features = ["tls"] }
+
+# Decoding saved plots (confusion matrices etc.) for the built-in image viewer
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# Integrated terminal: cross-platform PTY (ConPTY on Windows) + VT100 emulation
+portable-pty = "0.8"
+vt100 = "0.15"
 
 # Platform-correct per-user data directories
 dirs = "6"

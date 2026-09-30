@@ -47,6 +47,32 @@ pub fn env_ready() -> bool {
     env_python().is_some()
 }
 
+/// Directories to prepend to PATH so `python` and `pip` in a shell resolve
+/// to the app's managed environment. Empty when no environment exists yet.
+pub fn env_bin_dirs() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        // Conda env: python.exe sits at the env root, pip in Scripts.
+        let conda = conda_env_dir().join("python.exe");
+        if conda.exists() {
+            return vec![conda_env_dir(), conda_env_dir().join("Scripts")];
+        }
+        let venv = venv_dir().join("Scripts").join("python.exe");
+        if venv.exists() {
+            return vec![venv_dir().join("Scripts")];
+        }
+    } else {
+        let conda_bin = conda_env_dir().join("bin");
+        if conda_bin.join("python").exists() {
+            return vec![conda_bin];
+        }
+        let venv_bin = venv_dir().join("bin");
+        if venv_bin.join("python").exists() {
+            return vec![venv_bin];
+        }
+    }
+    Vec::new()
+}
+
 /// Folder where student scripts are stored (and where scripts run, so
 /// relative file paths like "data.csv" behave the same for everyone).
 pub fn scripts_dir() -> PathBuf {
@@ -185,6 +211,7 @@ pub fn import_name(req: &str) -> String {
         "pyyaml" => "yaml",
         "beautifulsoup4" => "bs4",
         "python-dateutil" => "dateutil",
+        "pygame" => "pygame",
         other => other,
     };
     mapped.replace('-', "_")
@@ -334,15 +361,33 @@ pub fn self_test(log: &dyn Fn(String)) -> Result<(), String> {
 pub type RunningChild = Arc<Mutex<Option<Child>>>;
 
 /// Spawn a script with the environment's python. Output lines stream to `tx`.
+///
+/// `cwd` is the student's project folder: it becomes the working directory
+/// (so `open("data.csv")` finds files next to the script) and is prepended to
+/// PYTHONPATH (so sibling files like `helpers.py` import as modules).
 pub fn run_script(
     script: &Path,
+    cwd: &Path,
     tx: Sender<String>,
 ) -> Result<(RunningChild, thread::JoinHandle<i32>), String> {
     let python = env_python().ok_or("No environment found — run setup first.")?;
+
+    // Prepend the project folder to any existing PYTHONPATH.
+    let pythonpath = match std::env::var_os("PYTHONPATH") {
+        Some(existing) if !existing.is_empty() => {
+            let mut v = cwd.as_os_str().to_owned();
+            v.push(if cfg!(windows) { ";" } else { ":" });
+            v.push(existing);
+            v
+        }
+        _ => cwd.as_os_str().to_owned(),
+    };
+
     let mut child = silent_command(&python)
         .arg("-u") // unbuffered, so prints show up immediately
         .arg(script)
-        .current_dir(scripts_dir())
+        .current_dir(cwd)
+        .env("PYTHONPATH", pythonpath)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
