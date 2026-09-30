@@ -182,14 +182,21 @@ jobs:
           rustup default stable
           rustup target add ${{ matrix.target }}
 
-      - name: Install cross (Linux)
+      - name: Install cross (Linux only)
         if: runner.os == 'Linux'
         run: cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Build
+      - name: Build (Linux, via cross)
+        if: runner.os == 'Linux'
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
         run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (macOS / Windows, native cargo)
+        if: runner.os != 'Linux'
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Locate binary
         id: bin
@@ -213,26 +220,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux x86: newest + previous LTS
           - os: ubuntu-26.04
             target: x86_64-unknown-linux-musl
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
-          # Linux ARM: same, run through QEMU user-mode emulation
           - os: ubuntu-26.04
             target: aarch64-unknown-linux-musl
             qemu: qemu-aarch64-static
           - os: ubuntu-24.04
             target: aarch64-unknown-linux-musl
             qemu: qemu-aarch64-static
-          # macOS ARM on two OS versions, Intel on the last Intel runner
           - os: macos-15
             target: aarch64-apple-darwin
-          - os: macos-latest      # macOS 26
+          - os: macos-latest
             target: aarch64-apple-darwin
           - os: macos-15-intel
             target: x86_64-apple-darwin
-          # Windows x86 on both server versions, ARM on the ARM runner
           - os: windows-2022
             target: x86_64-pc-windows-msvc
           - os: windows-2025
@@ -262,8 +265,6 @@ jobs:
             sudo apt-get update && sudo apt-get install -y qemu-user-static
             runner="${{ matrix.qemu }}"
           fi
-          # If your app has no --version/--help, replace this line with
-          # any invocation that starts, does something, and exits.
           $runner "$f" --version || $runner "$f" --help
 
   release:
@@ -290,7 +291,7 @@ jobs:
               (cd dist && 7z a "$name.zip" "$name.exe" && rm "$name.exe")
             else
               cp "$f" "dist/$name"
-              chmod +x "dist/$name"          # artifacts can drop the +x bit
+              chmod +x "dist/$name"
               tar -czf "dist/$name.tar.gz" -C dist "$name"
               rm "dist/$name"
             fi
